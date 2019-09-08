@@ -1,0 +1,676 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import sys
+import textwrap
+import re
+import requests
+import hashlib
+import base64
+from time import sleep
+from colorama import Fore, Back, Style
+import inspect
+
+#XXX FIXME REMOVE THESE
+#from SID import SID
+#from TestRun import TestRun
+#from TestSuite import TestSuite
+#from TestRunResult import TestRunResult
+#from Login import current_login
+
+default_extensions = ['.sol', '.json', '.txt', '.py']
+max_retries_get_test_result = 5
+
+path_ignore_pieces = [re.compile('/__'),
+                      re.compile('^__'),
+                      re.compile('/venv/'),
+                      re.compile('^venv/'),
+                      re.compile('^\.'),
+                      re.compile('/\.'),
+                      re.compile('^node_modules/'),
+                      re.compile('/node_modules/')]
+
+exit_error = {'command_unspecified' : -2,
+              'unknown_command' : -3,
+              'unable_to_determine_project' : -4,
+              'unable_to_determine_side' : -5,
+              'textually_invalid_sid' : -6,
+              'invalid_sid' : -7,
+              'no_json_returned_on_rest_call' : -8,
+              'rest_call_err' : -9,
+              'rest_call_no_response' : -10,
+              'required_arg_not_found' : -11
+              }
+
+def abort(err, errstr):
+    print(errstr, file=sys.stderr)
+    exit(exit_error[err])
+
+def line_num():
+    #Returns the current line number in our program
+    return 'Line ' + str(inspect.currentframe().f_back.f_lineno)
+
+#Strip off leading ../s from paths
+def strip_relative_path(dir_name):
+    pieces = os.path.normpath(dir_name).split(os.path.sep)
+
+    newpath = []
+
+    true_path_start = None
+    
+    for x in range(0, len(pieces)):
+        if pieces[x] != '..' and pieces[x] != '.':
+            true_path_start = x
+        else:
+            true_path_start = None
+
+    print_line(line_num(), {
+        "dir_name": dir_name,
+        "true_path_start": true_path_start,
+        "pieces": pieces,
+        "joined_pieces": '/'.join(pieces[true_path_start:])
+    })
+
+    exit(0)
+
+    return '/'.join(pieces[true_path_start:])
+
+def sha256_file(fn):
+    sha256 = hashlib.sha256()
+
+    #We don't just slurp it for memory reasons on large files.
+    with open(fn, 'rb') as inf:
+        #Read 64-KB chunks
+        while True:
+            data = inf.read(65536)
+
+            if not data:
+                break
+            
+            sha256.update(data)
+
+    return sha256.hexdigest()
+
+def print_line(line_num, to_print, label ='', label_color ='YELLOW', outline =False):
+    """
+    Print with line numbers
+
+    Print something with the line number and optionally add a frame border
+
+    Parameters:
+    line_num (int): Line number where print_line is called
+    to_print (*): Object, String, Number, etc to be printed
+    label (string): Label added as prefix
+    label_color (string): Color override for Label
+    outline (bool): Adds linebreaks and borders around `to_print`
+
+    """
+
+    if 'FTL_DEV' in os.environ:
+
+        # Use a specified label_color
+        label_color = label_color.upper()
+        if label_color == 'BLACK': label_color = Fore.BLACK
+        if label_color == 'RED': label_color = Fore.RED
+        if label_color == 'GREEN': label_color = Fore.GREEN
+        if label_color == 'YELLOW': label_color = Fore.YELLOW
+        if label_color == 'BLUE': label_color = Fore.BLUE
+        if label_color == 'MAGENTA': label_color = Fore.MAGENTA
+        if label_color == 'CYAN': label_color = Fore.CYAN
+        if label_color == 'WHITE': label_color = Fore.WHITE
+        if label_color == 'RESET': label_color = Fore.RESET
+        label = label_color + label + Fore.RESET
+
+        divider = Style.DIM + "=*" * 45 + Style.RESET_ALL
+
+        if outline:
+            print('\n' + divider)
+
+        print(f"{Style.DIM + '>' + Style.RESET_ALL} {Fore.YELLOW + line_num + Fore.RESET} {label}: {to_print}")
+
+        if outline:
+            print(divider + '\n')
+
+def add_to_push_list (file_list, base_path_index, dir_name, extensions, to_submit):
+    """
+    Add a file to the `to_submit` push list used in `process_dir()`
+
+    :param <list> file_list: List of files to be pushed
+    :param <int> base_path_index: Index of the base path
+    :param <str> dir_name: Directory name
+    :param <list> extensions: File extensions we want to push
+    :param <dict> to_submit: Dictionary of files to be pushed. (appended in this function)
+    :return: <dict> Dictionary of files to be pushed
+    """
+    print_line(line_num(), (dir_name, file_list))
+    for filename in file_list:
+        if not filename.startswith("./"):
+            tmp_fn, extension = os.path.splitext(filename)
+
+            if extension.lower() in extensions:
+                raw_fn = "%s/%s" % (dir_name, filename)
+                pieces = os.path.normpath(raw_fn).split(os.path.sep)
+                fn = '/'.join(pieces[base_path_index:])
+
+                if not len(fn):
+                    # Redefine the filenames for files in the basepath dir
+                    raw_fn = fn = pieces[0]
+
+                if raw_fn.startswith("./"):
+                    # Clean it up for syncing with the backend
+                    raw_fn = raw_fn[2:]
+
+                to_submit[raw_fn] = {'raw_fn': raw_fn,
+                                 'sha256': sha256_file(raw_fn),
+                                 'fn': fn}
+
+                print_line(line_num(), raw_fn, 'Eligible File', 'GREEN', True)
+
+            else:
+                print_line(line_num(), f"{filename}\n", 'Not Eligible', 'RED')
+
+        else:
+            print_line(line_num(), f"{filename}\n", 'Not Eligible', 'RED')
+
+    return to_submit
+
+def process_dir(to_submit, fn, extensions):
+    #First off, we need to know the base path, so that we can
+    #strip off extraneous parts of the path before we look for
+    #things we want to ignore.
+    pieces = os.path.normpath(fn).split(os.path.sep)
+    base_path_index = len(pieces)
+
+    print_line(line_num(), f"{pieces} {base_path_index}", 'Evaluate', 'CYAN')
+
+    is_directory = None
+
+    for dir_name, sub_dir_list, file_list in os.walk(fn):
+        print_line(line_num(), f"{dir_name} {sub_dir_list} {file_list}")
+
+        # We know we are in a directory
+        is_directory = True
+
+        #This isn't ideal, but will work for most projects and I can
+        #write a more intelligent version if it becomes neccessary.
+        pieces = os.path.normpath(dir_name).split(os.path.sep)
+        truncated_dir_name = '/'.join(pieces[base_path_index:]) + "/"
+
+        print_line(line_num(), {
+                "dir_name": dir_name,
+                "sub_dir_list": sub_dir_list,
+                "file_list": file_list,
+                "pieces": pieces,
+                "base_path_index": base_path_index,
+                "truncated_dir_name": truncated_dir_name
+            },
+            'Directory',
+            'CYAN',
+            True
+        )
+
+        ignore = False
+
+        for ignore_re in path_ignore_pieces:
+            if ignore_re.search(truncated_dir_name):
+                ignore = True
+                break
+
+        if not ignore:
+            to_submit = add_to_push_list(
+                file_list,
+                base_path_index,
+                dir_name,
+                extensions,
+                to_submit
+            )
+        else:
+            print_line(line_num(), f"{to_submit}\n", 'Not Eligible', 'RED')
+
+    if not is_directory:
+        to_submit = add_to_push_list(
+            [fn],
+            base_path_index,
+            '.',
+            extensions,
+            to_submit
+        )
+
+    return to_submit
+
+def rest_call(args, method, resource, data = None):
+    err = None
+    errstr = None
+    res = None
+    dict_res = None #Calls *should* return JSON that we return as a dict
+    
+    uri = "%s/%s" % (args.endpoint, resource)
+
+    headers = {'Content-Type': 'application/json',
+               'STL-SID': args.sid}
+
+    requests_args = {'headers' : headers,
+                     'timeout' : 600}
+
+    if data:
+        requests_args['json'] = data
+
+    if method == 'GET':
+        res = requests.get(uri, **requests_args)
+    elif method == 'POST':
+        res = requests.post(uri, **requests_args)
+    elif method == 'PUT':
+        res = requests.put(uri, **requests_args)
+    elif method == 'DELETE':
+        res = requests.delete(uri, **requests_args)
+    else:
+        #XXX Something dire should happen here
+        pass
+        
+
+    if res:
+        if res.status_code == 200:
+            try:
+                dict_res = res.json()
+            except json.decoder.JSONDecodeError as err:
+                dict_res = None
+
+            if not dict_res:
+                err = 'no_json_returned_on_rest_call'
+                errstr = "On call to endpoint %s we received a 200 OK status code but no JSON returned" % uri
+        else:
+            err = 'rest_call_err'
+            errstr = "%s returned %i : %s" % (uri, res.status_code, res.reason)
+    else:
+        err = 'rest_call_no_response'
+        errstr = "%s returned no response" % uri
+
+    return res, dict_res, err, errstr
+
+def destination_from_project_and_file(project_name, remote_fn):
+    return("project/%s/%s" % (project_name, remote_fn))
+
+def send_file(project_name, local_fn, remote_fn, is_new):
+    buf = None
+    
+    with open(local_fn, "rb") as inf:
+        buf = inf.read()
+
+    data = {'code' : "data:application/octet-stream;base64," + base64.b64encode(buf).decode(),
+            'name' : remote_fn}
+
+
+    call_type = None
+
+    if is_new:
+        call_type = 'POST'
+    else:
+        call_type = 'PUT'
+
+    destination = destination_from_project_and_file(project_name, remote_fn)
+    
+    return rest_call(args, call_type, destination, data)
+
+def cmd_status(args):
+    if not args.items:
+        #They want status on the overall project.
+        res, data, err, errstr = rest_call(args, 'GET', "/project/%s" % args.project)
+
+        if res.status_code != 200 and \
+           res.status_code != 404:
+            abort(err, errstr)
+
+        if res.status_code == 200:
+            #We found it, should be a list of files now and their hashes
+            if 'response' not in data:
+                abort(rest_call_err, "Unexpect response from GET to /project/%s" %args.project)
+
+                project = data['response']
+            
+                for item in project['code']:
+                    print(project['code'])
+        else:
+            #A 404
+            print("Project %s not yet created. Use the 'push' command to upload it." % args.project)
+
+def cmd_push(args):
+    if not args.items:
+        abort('required_arg_not_found', 'Items argument is required for PUSH command.')
+
+    to_submit = None
+    local_items = {}
+
+    base_path_index = None
+    
+    for fn in args.items:
+        local_items = process_dir(local_items, fn, [x.lower() for x in args.extensions])
+
+    print_line(line_num(), local_items, f'{str(len(local_items))} Local Items', 'GREEN', True)
+
+    if len(local_items) == 0:
+        #Probably print a message here once we get verbose output
+        exit(0)
+
+    new_local_items = dict()
+    # Look for a common base directory
+    dir_name = list(local_items.keys())[0].split('/')[0]
+    if len(list(filter(lambda x: x.split('/')[0] == dir_name, local_items))) == len(local_items):
+        # All the files are prefixed with the same directory name, so we can remove it
+        for filename, file_data in local_items.items():
+            # Remove the `dir_name` from the filename in the file_data
+            filename = file_data["fn"] = file_data["raw_fn"].replace(dir_name + '/', '')
+            # Add the cleaned file data to our new dict with a cleaned filename as the key
+            new_local_items[filename] = file_data
+        local_items = new_local_items
+    else:
+        for file_data in local_items.values():
+            file_data["fn"] = file_data["raw_fn"]
+
+    #Is this a new project?
+    project = None
+    remote_items = {}
+    
+    res, data, err, errstr = rest_call(args, 'GET', "/project/%s" % args.project)
+
+    if res.status_code != 200 and \
+       res.status_code != 404:
+        abort(err, errstr)
+
+    if res.status_code == 200:
+        #We found it, should be a list of files now and their hashes
+        if 'response' not in data:
+            abort(rest_call_err, "Unexpect response from GET to /project/%s" %args.project)
+
+        project = data['response']
+            
+        for item in project['code']:
+            remote_items[item['name']] = item
+    else:
+        #We got a 404, so it's a new project we'll implicitly create.
+        #Noting to do right here though
+        pass
+
+    files_to_delete = []
+    files_to_refresh = []
+    files_to_send_new = []
+
+    for remote_item_name in remote_items:
+        print(f"Remote item {remote_item_name}")
+        if remote_item_name in local_items:
+            #Ok, it's in the uploaded project and our local project. Has it changed?
+            if remote_items[remote_item_name]['sha256'] != local_items[remote_item_name]['sha256']:
+                #It's changed, so let's submit it
+                files_to_refresh.append(remote_item_name)
+        else:
+            #It's remote but not local, so we want to delete it
+            files_to_delete.append(remote_item_name)
+
+    for local_item_name in local_items:
+        print(f"Local item {local_item_name}")
+        if local_item_name not in remote_items:
+            #It's new, we need to submit it
+            files_to_send_new.append(local_item_name)
+
+    changes = 0
+
+    if files_to_send_new:
+        print("Sending new files:")
+        for item in sorted(files_to_send_new):
+            changes += 1
+            print("\t" + local_items[item]['fn'])
+            send_file(args.project, local_items[item]['raw_fn'], local_items[item]['fn'], True)
+
+    if files_to_refresh:
+        print("Refreshing changed files:")
+        for item in sorted(files_to_refresh):
+            changes += 1
+            print("\t" + local_items[item]['fn'])
+            send_file(args.project, local_items[item]['raw_fn'], local_items[item]['fn'], False)
+
+    if files_to_delete:
+        print("Deleting removed files:")
+        for item in sorted(files_to_delete):
+            changes += 1
+            print("\t" + remote_items[item]['name'])
+            rest_call(args, 'DELETE', destination_from_project_and_file(args.project, remote_items[item]['name']))
+
+    if changes:
+        print()
+        print("%i items total changed" % changes)
+    else:
+        print("Nothing to do; all up to date!")
+
+def cmd_test(args):
+    print("Beginning test of project %s" % args.project)
+    
+    res, data, err, errstr = rest_call(args, 'POST', "test_project/%s" % args.project)
+
+    if res.status_code != 200:
+        abort(err, errstr)
+
+    stlid = data['stlid']
+
+    print("Test %s started, waiting for result." % stlid)
+
+    done = False
+    
+    while not done:
+        res, data, err, errstr = rest_call(args, 'GET', "/run_tests/%s" % stlid)
+
+        if err:
+            abort(err, errstr)
+
+        if 'response' in data:
+            if 'status_msg' in data['response']:
+                if data['response']['status_msg'] == 'COMPLETE':
+                    done = True
+                    print("\tSTATUS: Complete; getting results...")
+                    print()
+
+        if not done:
+            if data['response']['status_msg'] == 'SETUP':
+                print("\tSTATUS: Setting up")
+            else:
+                print(f"\tSTATUS: Running {data['response']['percent_complete']}% Complete")
+                
+            sleep(5)
+
+    show_test_results(stlid)
+
+def show_test_results_OLD(stlid):
+    current_login(SID.load_by_sid(os.environ['STL_INTERNAL_SID']))
+ 
+    tr = TestRun()
+
+    tr.load_by_stlid(stlid)
+
+    trrs = TestRunResult().load(test_run = tr, sort_key = 'stlid.stlid')
+
+    for trr in trrs:
+        trr.test_suite_test.set_ftl_severity_ordinal_from_ftl_severity()
+        trr.test_suite_test.save()
+
+    trrs.sort(key = lambda x: (x.test_suite_test.ftl_severity_ordinal, x.code.name, x.test_suite_test.ftl_test_id, x.start_line),
+              reverse = False)
+
+    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
+
+    for trr in trrs:
+        print("%-30s %-12s %-6s %4i - %4i %s" % (trr.code.name, trr.test_suite_test.ftl_test_id, trr.test_suite_test.ftl_severity, trr.start_line, trr.end_line, trr.test_suite_test.ftl_short_description))
+   
+def fetch_test_results(stlid):
+    try:
+        return rest_call(args, 'GET', "/test_result/%s" % stlid)
+    except:
+        res = requests.models.Response()
+        res.status_code = 598
+        return [
+            res,
+            None,
+            "rest_call_err",
+            "There has been a network error with GET /test_result"
+        ]
+
+def show_test_results(stlid):
+    res, data, err, errstr = fetch_test_results(stlid)
+
+    try_count = 1
+    while res.status_code != 200 and try_count <= max_retries_get_test_result:
+        print(f"\tRetrying \"GET /test_result\"... ({try_count} retry attempts)")
+        res, data, err, errstr = fetch_test_results(stlid)
+        try_count = try_count + 1
+        sleep(1)
+
+    if res.status_code != 200:
+        abort(err, errstr)
+
+    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
+
+#    data['result'].sort(key = lambda x: (data['result'][x]['test_suite_test']['ftl_severity_ordinal'], data['result'][x]['code']['name'], data['result'][x]['test_suite_test']['ftl_test_id'], data['result'][x]['start_line']),
+#                        reverse = False)
+
+    data['test_run_result'].sort(key = lambda x: (x['test_suite_test']['ftl_severity_ordinal'],
+                               x['code']['name'],
+                               x['test_suite_test']['ftl_test_id'],
+                               x['start_line']),
+              reverse = False)
+
+#    data['result'].sort(key = lambda x: (x['test_suite_test']['ftl_severity_ordinal']),
+#                        reverse = False)
+    
+    for result in data['test_run_result']:
+        print("%-30s %-12s %-6s %4i - %4i %s" %
+              (result['code']['name'],
+               result['test_suite_test']['ftl_test_id'],
+               result['test_suite_test']['ftl_severity'],
+               result['start_line'],
+               result['end_line'],
+               result['test_suite_test']['ftl_short_description']))
+
+def cmd_del(args):
+    res, data, err, errstr = rest_call(args, 'DELETE', "/project/%s" % args.project)
+
+    if err:
+        abort(err, errstr)
+
+    if 'response' in data:
+        if data['response'] == 'OK':
+            print(f"\"{args.project}\" has been deleted.")
+    
+def cmd_view(args):
+    for stlid in args.items:
+        show_test_results(stlid)
+
+def determine_project(args):
+    err = None
+    errstr = None
+    project = None
+
+    #Easiest: Did they explicitly specify it on the command-line?
+    if args.project:
+        #Yes, they did!
+        project = args.project
+    elif 'FTL_PROJECT' in os.environ:
+        #Ok, they specified it in the environment
+        project = os.environ['FTL_PROJECT']
+    else:
+        #In the future we might like to try to guess from the
+        #directory you're submitting (if you submit only one).
+        #But, for now, we just throw an error:
+        err = 'unable_to_determine_project'
+        errstr = textwrap.fill("Unable to determine project. Please either specify explicitly using the --project flag, or in the environment with the variable FTL_PROJECT. Note this string is an arbitrary one that you choose to allow yourself to have more than one project you're working on at any given time.")
+
+    return project, err, errstr
+
+def determine_sid(args):
+    err = None
+    errstr = None
+    sid = None
+
+    if args.sid:
+        #They explicitly specified
+        sid = args.sid
+    elif 'FTL_SID' in os.environ:
+        #In the environment
+        sid = os.environ['FTL_SID']
+    elif 'STL_INTERNAL_SID' in os.environ:
+        #Old internal SID name, will delete when we migrate internal names
+        sid = os.environ['STL_INTERNAL_SID']
+    else:
+        err = 'unable_to_determine_sid'
+        errstr = textwrap.fill("Unable to determine SID. Please either specify explicitly using the --sid flage, or in the environment with the varliable FTL_SID")
+
+    if sid is not None:
+        if not re.match('^[A-z0-9]{40}$', sid):
+            err = 'textually_invalid_sid'
+            errstr = textwrap.fill('SID "%s" does not appear to be valid; a valid SID is 40 characters long, comprised of the characters A-z and 0-9.' % sid)
+
+    return sid, err, errstr
+ 
+commands = {'push' : cmd_push,
+            'status' : cmd_status,
+            'del' : cmd_del,
+            'test' : cmd_test,
+            'view' : cmd_view}
+
+ftl_project_string = 'UNSET'
+
+if 'FTL_PROJECT' in os.environ:
+    ftl_project_string = '"' + os.environ['FTL_PROJECT'] + '"'
+
+default_endpoint = None
+
+if 'FTL_ENDPOINT' in os.environ:
+    default_endpoint = os.environ['FTL_ENDPOINT']
+if 'STL_ENDPOINT' in os.environ:
+    #Temporarily allow the old variable name until we get rid of it
+    default_endpoint = os.environ['STL_ENDPOINT']
+else:
+    default_endpoint = 'https://bugcatcher.fasterthanlight.dev'
+
+parser = argparse.ArgumentParser(description = 'FTL Client for running tests')
+
+parser.add_argument('command', type=str, help = "Command. One of: " + ' '.join(sorted(commands.keys())))
+
+parser.add_argument('items', type = str, nargs = '*',
+                    help = 'Files and directories to process, or test IDs to work on')
+
+parser.add_argument('--project', '-p', type=str, help = "Project name to operate on. If unspecified, will use the value of the environment variable FTL_PROJECT (currently %s)" % ftl_project_string)
+
+parser.add_argument('--endpoint', '-e', default=default_endpoint, help = "Endpoint to connect to. If unspecified, will use program default, or the environment variable FTL_ENDPOINT. Currently set to %s" % default_endpoint)
+
+parser.add_argument('--async', '-a', action='store_true', help = 'Test in asynchronous mode; return immediately with a test ID')
+
+parser.add_argument('--sid', '-s', help = "SID to use for authentication. If not specified, will use environment variable FTL_SID")
+
+parser.add_argument('--extension', dest='extensions', action="append", help = f"Extensions to submit. If unspecified, defaults to {default_extensions}. Adding extensions adds to this list, rather than replacing it", default = default_extensions)
+
+args = parser.parse_args()
+
+if args.command is None:
+    print("Must specify commmand. One of: " + ' '.join(sorted(commands.keys())), file=sys.stderr)
+    exit(exit_error['command_unspecified'])
+
+if args.command not in commands:
+    print('Command "%s" not recognized. Must be one of: ' % args.command + ' '.join(sorted(commands.keys())), file=sys.stderr)
+    exit(exit_error['unknown_command'])
+
+project, err, errstr = determine_project(args)
+    
+if err:
+    print(errstr, file=sys.stderr)
+    exit(exit_error[err])
+
+args.project = project
+
+sid, err, errstr = determine_sid(args)
+
+if err:
+    print(errstr, file=sys.stderr)
+    exit(exit_error[err])
+
+args.sid = sid
+
+commands[args.command](args)
