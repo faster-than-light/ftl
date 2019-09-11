@@ -303,7 +303,8 @@ def destination_from_project_and_file(project_name, remote_fn):
     return ("project/%s/%s" % (project_name, remote_fn))
 
 
-def send_file(project_name, local_fn, remote_fn, is_new):
+def send_file(args, local_fn, remote_fn, is_new):
+    project_name = args.project
     buf = None
 
     with open(local_fn, "rb") as inf:
@@ -432,14 +433,14 @@ def cmd_push(args):
         for item in sorted(files_to_send_new):
             changes += 1
             print("\t" + local_items[item]['fn'])
-            send_file(args.project, local_items[item]['raw_fn'], local_items[item]['fn'], True)
+            send_file(args, local_items[item]['raw_fn'], local_items[item]['fn'], True)
 
     if files_to_refresh:
         print("Refreshing changed files:")
         for item in sorted(files_to_refresh):
             changes += 1
             print("\t" + local_items[item]['fn'])
-            send_file(args.project, local_items[item]['raw_fn'], local_items[item]['fn'], False)
+            send_file(args, local_items[item]['raw_fn'], local_items[item]['fn'], False)
 
     if files_to_delete:
         print("Deleting removed files:")
