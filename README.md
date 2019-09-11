@@ -1,31 +1,31 @@
-# BugCatcher
-Command Line Test Client by Faster Than Light
+# ftl
+Faster Than Light Command Line Test Client
 
 #### Usage
 
 ```
-bugcatcher [-h] [--project PROJECT] [--endpoint ENDPOINT] [--async]
+ftl [-h] [--project PROJECT] [--endpoint ENDPOINT] [--async]
        [--sid SID] [--extension EXTENSIONS]
        command [items [items ...]]
 ```
 
 Retrieve a SID from the BugCatcher <a href="https://bugcatcher.fasterthanlight.dev" target="_blank">web app</a> and use it directly.
 
-`bugcatcher --project "Master" --sid 5EX3c6FNWMAv3AiIsFMGOhnMidNyDkarskyzddFq push *`
+`ftl --project "Master" --sid 5EX3c6FNWMAv3AiIsFMGOhnMidNyDkarskyzddFq push *`
 
 Or store some environmental variables.
 
 ```
-export FTL_SID=5EX3c6FNWMAv3AiIsFMGOhnMidNyDkarskyzddFq
+export STL_INTERNAL_SID=5EX3c6FNWMAv3AiIsFMGOhnMidNyDkarskyzddFq
 export FTL_PROJECT="Master"
 ```
 
-Then minimize your `bugcatcher` commands.
+Then minimize your `ftl` commands.
 
-`bugcatcher push *`
+`ftl push *`
 
-`bugcatcher test`
+`ftl test`
 
-`bugcatcher view <test_id>`
+`ftl view <test_id>`
 
-`bugcatcher del`
+`ftl del`

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 #!/usr/bin/env python3
 
 import argparse
@@ -634,75 +636,77 @@ def determine_sid(args):
     return sid, err, errstr
 
 
-commands = {'push': cmd_push,
-            'status': cmd_status,
-            'del': cmd_del,
-            'test': cmd_test,
-            'view': cmd_view}
+def main():
+    commands = {'push': cmd_push,
+                'status': cmd_status,
+                'del': cmd_del,
+                'test': cmd_test,
+                'view': cmd_view}
 
-ftl_project_string = 'UNSET'
+    ftl_project_string = 'UNSET'
 
-if 'FTL_PROJECT' in os.environ:
-    ftl_project_string = '"' + os.environ['FTL_PROJECT'] + '"'
+    if 'FTL_PROJECT' in os.environ:
+        ftl_project_string = '"' + os.environ['FTL_PROJECT'] + '"'
 
-default_endpoint = None
+    default_endpoint = None
 
-if 'FTL_ENDPOINT' in os.environ:
-    default_endpoint = os.environ['FTL_ENDPOINT']
-if 'STL_ENDPOINT' in os.environ:
-    # Temporarily allow the old variable name until we get rid of it
-    default_endpoint = os.environ['STL_ENDPOINT']
-else:
-    default_endpoint = 'https://bugcatcher.fasterthanlight.dev'
+    if 'FTL_ENDPOINT' in os.environ:
+        default_endpoint = os.environ['FTL_ENDPOINT']
+    if 'STL_ENDPOINT' in os.environ:
+        # Temporarily allow the old variable name until we get rid of it
+        default_endpoint = os.environ['STL_ENDPOINT']
+    else:
+        default_endpoint = 'https://bugcatcher.fasterthanlight.dev'
 
-parser = argparse.ArgumentParser(description='FTL Client for running tests')
+    parser = argparse.ArgumentParser(description='FTL Client for running tests')
 
-parser.add_argument('command', type=str, help="Command. One of: " + ' '.join(sorted(commands.keys())))
+    parser.add_argument('command', type=str, help="Command. One of: " + ' '.join(sorted(commands.keys())))
 
-parser.add_argument('items', type=str, nargs='*',
-                    help='Files and directories to process, or test IDs to work on')
+    parser.add_argument('items', type=str, nargs='*',
+                        help='Files and directories to process, or test IDs to work on')
 
-parser.add_argument('--project', '-p', type=str,
-                    help="Project name to operate on. If unspecified, will use the value of the environment variable FTL_PROJECT (currently %s)" % ftl_project_string)
+    parser.add_argument('--project', '-p', type=str,
+                        help="Project name to operate on. If unspecified, will use the value of the environment variable FTL_PROJECT (currently %s)" % ftl_project_string)
 
-parser.add_argument('--endpoint', '-e', default=default_endpoint,
-                    help="Endpoint to connect to. If unspecified, will use program default, or the environment variable FTL_ENDPOINT. Currently set to %s" % default_endpoint)
+    parser.add_argument('--endpoint', '-e', default=default_endpoint,
+                        help="Endpoint to connect to. If unspecified, will use program default, or the environment variable FTL_ENDPOINT. Currently set to %s" % default_endpoint)
 
-parser.add_argument('--async', '-a', action='store_true',
-                    help='Test in asynchronous mode; return immediately with a test ID')
+    parser.add_argument('--async', '-a', action='store_true',
+                        help='Test in asynchronous mode; return immediately with a test ID')
 
-parser.add_argument('--sid', '-s',
-                    help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
+    parser.add_argument('--sid', '-s',
+                        help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
 
-parser.add_argument('--extension', dest='extensions', action="append",
-                    help=f"Extensions to submit. If unspecified, defaults to {default_extensions}. Adding extensions adds to this list, rather than replacing it",
-                    default=default_extensions)
+    parser.add_argument('--extension', dest='extensions', action="append",
+                        help=f"Extensions to submit. If unspecified, defaults to {default_extensions}. Adding extensions adds to this list, rather than replacing it",
+                        default=default_extensions)
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-if args.command is None:
-    print("Must specify commmand. One of: " + ' '.join(sorted(commands.keys())), file=sys.stderr)
-    exit(exit_error['command_unspecified'])
+    if args.command is None:
+        print("Must specify commmand. One of: " + ' '.join(sorted(commands.keys())), file=sys.stderr)
+        exit(exit_error['command_unspecified'])
 
-if args.command not in commands:
-    print('Command "%s" not recognized. Must be one of: ' % args.command + ' '.join(sorted(commands.keys())),
-          file=sys.stderr)
-    exit(exit_error['unknown_command'])
+    if args.command not in commands:
+        print('Command "%s" not recognized. Must be one of: ' % args.command + ' '.join(sorted(commands.keys())),
+              file=sys.stderr)
+        exit(exit_error['unknown_command'])
 
-project, err, errstr = determine_project(args)
+    project, err, errstr = determine_project(args)
 
-if err:
-    print(errstr, file=sys.stderr)
-    exit(exit_error[err])
+    if err:
+        print(errstr, file=sys.stderr)
+        exit(exit_error[err])
 
-args.project = project
+    args.project = project
 
-sid, err, errstr = determine_sid(args)
+    sid, err, errstr = determine_sid(args)
 
-if err:
-    print(errstr, file=sys.stderr)
-    exit(exit_error[err])
+    if err:
+        print(errstr, file=sys.stderr)
+        exit(exit_error[err])
 
-args.sid = sid
+    args.sid = sid
 
-commands[args.command](args)
+    commands[args.command](args)
+
