@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 
 import argparse
 import json
@@ -22,6 +22,7 @@ import inspect
 # from TestRunResult import TestRunResult
 # from Login import current_login
 
+args = None
 default_extensions = ['.sol', '.json', '.txt', '.py']
 max_retries_get_test_result = 5
 
@@ -464,14 +465,14 @@ def cmd_test(args):
     if res.status_code != 200:
         abort(err, errstr)
 
-    stlid = data['stlid']
+    args.stlid = data['stlid']
 
-    print("Test %s started, waiting for result." % stlid)
+    print("Test %s started, waiting for result." % args.stlid)
 
     done = False
 
     while not done:
-        res, data, err, errstr = rest_call(args, 'GET', "/run_tests/%s" % stlid)
+        res, data, err, errstr = rest_call(args, 'GET', "/run_tests/%s" % args.stlid)
 
         if err:
             abort(err, errstr)
@@ -491,7 +492,7 @@ def cmd_test(args):
 
             sleep(5)
 
-    show_test_results(stlid)
+    show_test_results(args)
 
 
 def show_test_results_OLD(stlid):
@@ -508,20 +509,21 @@ def show_test_results_OLD(stlid):
         trr.test_suite_test.save()
 
     trrs.sort(key=lambda x: (
-    x.test_suite_test.ftl_severity_ordinal, x.code.name, x.test_suite_test.ftl_test_id, x.start_line),
+        x.test_suite_test.ftl_severity_ordinal, x.code.name, x.test_suite_test.ftl_test_id, x.start_line),
               reverse=False)
 
     print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
 
     for trr in trrs:
         print("%-30s %-12s %-6s %4i - %4i %s" % (
-        trr.code.name, trr.test_suite_test.ftl_test_id, trr.test_suite_test.ftl_severity, trr.start_line, trr.end_line,
-        trr.test_suite_test.ftl_short_description))
+            trr.code.name, trr.test_suite_test.ftl_test_id, trr.test_suite_test.ftl_severity, trr.start_line,
+            trr.end_line,
+            trr.test_suite_test.ftl_short_description))
 
 
-def fetch_test_results(stlid):
+def fetch_test_results(args):
     try:
-        return rest_call(args, 'GET', "/test_result/%s" % stlid)
+        return rest_call(args, 'GET', "/test_result/%s" % args.stlid)
     except:
         res = requests.models.Response()
         res.status_code = 598
@@ -533,13 +535,13 @@ def fetch_test_results(stlid):
         ]
 
 
-def show_test_results(stlid):
-    res, data, err, errstr = fetch_test_results(stlid)
+def show_test_results(args):
+    res, data, err, errstr = fetch_test_results(args)
 
     try_count = 1
     while res.status_code != 200 and try_count <= max_retries_get_test_result:
         print(f"\tRetrying \"GET /test_result\"... ({try_count} retry attempts)")
-        res, data, err, errstr = fetch_test_results(stlid)
+        res, data, err, errstr = fetch_test_results(args)
         try_count = try_count + 1
         sleep(1)
 
@@ -710,4 +712,3 @@ def main():
     args.sid = sid
 
     commands[args.command](args)
-
