@@ -129,14 +129,21 @@ def print_line(line_num, to_print, label='', label_color='YELLOW', outline=False
         if label_color == 'CYAN': label_color = Fore.CYAN
         if label_color == 'WHITE': label_color = Fore.WHITE
         if label_color == 'RESET': label_color = Fore.RESET
-        label = label_color + label + Fore.RESET
+        label = str(label_color + label + Fore.RESET)
 
         divider = Style.DIM + "=*" * 45 + Style.RESET_ALL
 
         if outline:
             print('\n' + divider)
 
-        print(f"{Style.DIM + '>' + Style.RESET_ALL} {Fore.YELLOW + line_num + Fore.RESET} {label}: {to_print}")
+        print(
+            "%s %s %s: %s" % (
+                str(Style.DIM + '>' + Style.RESET_ALL),
+                str(Fore.YELLOW + line_num + Fore.RESET),
+                label,
+                to_print
+            )
+        )
 
         if outline:
             print(divider + '\n')
@@ -178,10 +185,10 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
                 print_line(line_num(), raw_fn, 'Eligible File', 'GREEN', True)
 
             else:
-                print_line(line_num(), f"{filename}\n", 'Not Eligible', 'RED')
+                print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
 
         else:
-            print_line(line_num(), f"{filename}\n", 'Not Eligible', 'RED')
+            print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
 
     return to_submit
 
@@ -193,12 +200,12 @@ def process_dir(to_submit, fn, extensions):
     pieces = os.path.normpath(fn).split(os.path.sep)
     base_path_index = len(pieces)
 
-    print_line(line_num(), f"{pieces} {base_path_index}", 'Evaluate', 'CYAN')
+    print_line(line_num(), str("%s %s" % (pieces, base_path_index)), 'Evaluate', 'CYAN')
 
     is_directory = None
 
     for dir_name, sub_dir_list, file_list in os.walk(fn):
-        print_line(line_num(), f"{dir_name} {sub_dir_list} {file_list}")
+        print_line(line_num(), str("%s %s %s" % (dir_name, sub_dir_list, file_list)))
 
         # We know we are in a directory
         is_directory = True
@@ -237,7 +244,7 @@ def process_dir(to_submit, fn, extensions):
                 to_submit
             )
         else:
-            print_line(line_num(), f"{to_submit}\n", 'Not Eligible', 'RED')
+            print_line(line_num(), str("%s\n" % to_submit), 'Not Eligible', 'RED')
 
     if not is_directory:
         to_submit = add_to_push_list(
@@ -361,7 +368,7 @@ def cmd_push(args):
     for fn in args.items:
         local_items = process_dir(local_items, fn, [x.lower() for x in args.extensions])
 
-    print_line(line_num(), local_items, f'{str(len(local_items))} Local Items', 'GREEN', True)
+    print_line(line_num(), local_items, "%s Local Items" % str(len(local_items)), 'GREEN', True)
 
     if len(local_items) == 0:
         # Probably print a message here once we get verbose output
@@ -411,7 +418,7 @@ def cmd_push(args):
     files_to_send_new = []
 
     for remote_item_name in remote_items:
-        print(f"Remote item {remote_item_name}")
+        print(str("Remote item %s" % remote_item_name))
         if remote_item_name in local_items:
             # Ok, it's in the uploaded project and our local project. Has it changed?
             if remote_items[remote_item_name]['sha256'] != local_items[remote_item_name]['sha256']:
@@ -422,7 +429,7 @@ def cmd_push(args):
             files_to_delete.append(remote_item_name)
 
     for local_item_name in local_items:
-        print(f"Local item {local_item_name}")
+        print(str("Local item %s" % local_item_name))
         if local_item_name not in remote_items:
             # It's new, we need to submit it
             files_to_send_new.append(local_item_name)
@@ -488,7 +495,7 @@ def cmd_test(args):
             if data['response']['status_msg'] == 'SETUP':
                 print("\tSTATUS: Setting up")
             else:
-                print(f"\tSTATUS: Running {data['response']['percent_complete']}% Complete")
+                print("\tSTATUS: Running %s%% Complete" % data['response']['percent_complete'])
 
             sleep(5)
 
@@ -540,7 +547,7 @@ def show_test_results(args):
 
     try_count = 1
     while res.status_code != 200 and try_count <= max_retries_get_test_result:
-        print(f"\tRetrying \"GET /test_result\"... ({try_count} retry attempts)")
+        print("\tRetrying \"GET /test_result\"... (%s retry attempts)" % try_count)
         res, data, err, errstr = fetch_test_results(args)
         try_count = try_count + 1
         sleep(1)
@@ -580,7 +587,7 @@ def cmd_del(args):
 
     if 'response' in data:
         if data['response'] == 'OK':
-            print(f"\"{args.project}\" has been deleted.")
+            print("\"%s\" has been deleted." % args.project)
 
 
 def cmd_view(args):
@@ -681,7 +688,7 @@ def main():
                         help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
 
     parser.add_argument('--extension', dest='extensions', action="append",
-                        help=f"Extensions to submit. If unspecified, defaults to {default_extensions}. Adding extensions adds to this list, rather than replacing it",
+                        help="Extensions to submit. If unspecified, defaults to %s. Adding extensions adds to this list, rather than replacing it" % default_extensions,
                         default=default_extensions)
 
     args = parser.parse_args()
