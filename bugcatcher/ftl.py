@@ -438,7 +438,18 @@ def cmd_push(args):
 
     if files_to_send_new:
         print("Sending new files:")
-        for item in sorted(files_to_send_new):
+        files_to_send_new = sorted(files_to_send_new)
+
+        # Prioritize build files
+        prioritized_files = ['package.json', 'requirements.txt']  # Move to constants section at top of file
+        priority_files = list()
+        for item in files_to_send_new:
+            if any(file in item for file in prioritized_files):
+                priority_files.append(item)
+        if priority_files:
+            non_priority_files = list(filter(lambda x: x not in priority_files, files_to_send_new))
+            files_to_send_new = priority_files + non_priority_files
+        for item in files_to_send_new:
             changes += 1
             print("\t" + local_items[item]['fn'])
             send_file(args, local_items[item]['raw_fn'], local_items[item]['fn'], True)
