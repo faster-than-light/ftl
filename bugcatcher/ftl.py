@@ -23,7 +23,7 @@ import inspect
 # from Login import current_login
 
 args = None
-default_extensions = ['.sol', '.json', '.txt', '.py']
+default_extensions = []
 max_retries_get_test_result = 5
 
 path_ignore_pieces = [re.compile('/__'),
@@ -165,7 +165,7 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
         if not filename.startswith("./"):
             tmp_fn, extension = os.path.splitext(filename)
 
-            if extension.lower() in extensions:
+            if not extensions or extension.lower() in extensions:
                 raw_fn = "%s/%s" % (dir_name, filename)
                 pieces = os.path.normpath(raw_fn).split(os.path.sep)
                 fn = '/'.join(pieces[base_path_index:])
@@ -193,12 +193,55 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
     return to_submit
 
 
+def gitignore_to_string(line):
+    if line and "#" not in line:
+        line = line.replace("*", '')
+        line = line.replace("\n", '')
+        if line:
+            return line
+    return
+
+
+def gitignore_to_regex(line):
+    # Abandoned trying to use regex for gitignore patterns
+    # todo: Look into using RegEx for ignoring files matching gitignore patterns
+    if line and "#" not in line:
+        line = line.replace("*", '')
+        line = line.replace("$", "\$")
+        line = line.replace(".", "\.") # this one is causing an issue
+        line = line.replace("\n", '')
+        if line:
+            return re.compile(line)
+    return
+
+
 def process_dir(to_submit, fn, extensions):
     # First off, we need to know the base path, so that we can
     # strip off extraneous parts of the path before we look for
     # things we want to ignore.
     pieces = os.path.normpath(fn).split(os.path.sep)
     base_path_index = len(pieces)
+
+    # Look for a `.gitignore` file in the base directory
+    # todo: Find all `.gitignore` files in subdirectories and add the patterns to the ignore list
+    gitignore_pieces = list()
+    gitignore_filepath = ".gitignore"
+    try:
+        gitignore = open(gitignore_filepath, 'r')
+        if gitignore.mode == 'r':
+            gitignore_lines = gitignore.readlines()
+            if not len(gitignore_lines):
+                # We have found no ignore patterns yet, so we check for the gitignore file in the
+                # declared directory rather than in the base directory.
+                gitignore = open("%s/%s" % (fn, gitignore_filepath), 'r')
+                if gitignore.mode == 'r':
+                    gitignore_lines = gitignore.readlines()
+            for line in gitignore_lines:
+                str_line = gitignore_to_string(line)
+                if str_line:
+                    gitignore_pieces.append(str_line)
+    except AssertionError as error:
+        print('there was a problem iterating through lines in .gitignore', error)
 
     print_line(line_num(), str("%s %s" % (pieces, base_path_index)), 'Evaluate', 'CYAN')
 
@@ -234,6 +277,15 @@ def process_dir(to_submit, fn, extensions):
             if ignore_re.search(truncated_dir_name):
                 ignore = True
                 break
+
+        if not ignore:
+            for ignore_gh in gitignore_pieces:
+                if ignore_gh[len(ignore_gh)-1] == '/':
+                    ignore_gh = ignore_gh[:len(ignore_gh)-1]
+                if ignore_gh in pieces or ignore_gh in file_list or ignore_gh in dir_name:
+                    print_line(line_num(), (ignore_gh, pieces, file_list), "IGNORE", "RED")
+                    ignore = True
+                    break
 
         if not ignore:
             to_submit = add_to_push_list(
@@ -356,6 +408,16 @@ def cmd_status(args):
             print("Project %s not yet created. Use the 'push' command to upload it." % args.project)
 
 
+def find_common_base_dir(items):
+    # Look for a common base directory
+    dir_name = list(items.keys())[0].split('/')[0]
+    if len(list(filter(lambda x: x.split('/')[0] == dir_name, items))) == len(items):
+        # All the files are prefixed with the same directory name, so we can remove it
+        return dir_name
+    else:
+        return
+
+
 def cmd_push(args):
     if not args.items:
         abort('required_arg_not_found', 'Items argument is required for PUSH command.')
@@ -375,13 +437,11 @@ def cmd_push(args):
         exit(0)
 
     new_local_items = dict()
-    # Look for a common base directory
-    dir_name = list(local_items.keys())[0].split('/')[0]
-    if len(list(filter(lambda x: x.split('/')[0] == dir_name, local_items))) == len(local_items):
-        # All the files are prefixed with the same directory name, so we can remove it
+    common_base_directory = find_common_base_dir(local_items)
+    if common_base_directory:
         for filename, file_data in local_items.items():
             # Remove the `dir_name` from the filename in the file_data
-            filename = file_data["fn"] = file_data["raw_fn"].replace(dir_name + '/', '')
+            filename = file_data["fn"] = file_data["raw_fn"].replace(common_base_directory + '/', '')
             # Add the cleaned file data to our new dict with a cleaned filename as the key
             new_local_items[filename] = file_data
         local_items = new_local_items
