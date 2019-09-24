@@ -168,7 +168,7 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
             if not extensions or extension.lower() in extensions:
                 raw_fn = "%s/%s" % (dir_name, filename)
                 pieces = os.path.normpath(raw_fn).split(os.path.sep)
-                fn = '/'.join(pieces[base_path_index:])
+                fn = (os.path.sep).join(pieces[base_path_index:])
 
                 if not len(fn):
                     # Redefine the filenames for files in the basepath dir
@@ -195,7 +195,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
 
 def gitignore_to_string(line):
     if line and "#" not in line:
-        line = line.replace("*", '')
         line = line.replace("\n", '')
         if line:
             return line
@@ -222,27 +221,6 @@ def process_dir(to_submit, fn, extensions):
     pieces = os.path.normpath(fn).split(os.path.sep)
     base_path_index = len(pieces)
 
-    # Look for a `.gitignore` file in the base directory
-    # todo: Find all `.gitignore` files in subdirectories and add the patterns to the ignore list
-    gitignore_pieces = list()
-    gitignore_filepath = ".gitignore"
-    try:
-        gitignore = open(gitignore_filepath, 'r')
-        if gitignore.mode == 'r':
-            gitignore_lines = gitignore.readlines()
-            if not len(gitignore_lines):
-                # We have found no ignore patterns yet, so we check for the gitignore file in the
-                # declared directory rather than in the base directory.
-                gitignore = open("%s/%s" % (fn, gitignore_filepath), 'r')
-                if gitignore.mode == 'r':
-                    gitignore_lines = gitignore.readlines()
-            for line in gitignore_lines:
-                str_line = gitignore_to_string(line)
-                if str_line:
-                    gitignore_pieces.append(str_line)
-    except AssertionError as error:
-        print('there was a problem iterating through lines in .gitignore', error)
-
     print_line(line_num(), str("%s %s" % (pieces, base_path_index)), 'Evaluate', 'CYAN')
 
     is_directory = None
@@ -256,7 +234,7 @@ def process_dir(to_submit, fn, extensions):
         # This isn't ideal, but will work for most projects and I can
         # write a more intelligent version if it becomes neccessary.
         pieces = os.path.normpath(dir_name).split(os.path.sep)
-        truncated_dir_name = '/'.join(pieces[base_path_index:]) + "/"
+        truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
 
         print_line(line_num(), {
             "dir_name": dir_name,
@@ -277,15 +255,6 @@ def process_dir(to_submit, fn, extensions):
             if ignore_re.search(truncated_dir_name):
                 ignore = True
                 break
-
-        if not ignore:
-            for ignore_gh in gitignore_pieces:
-                if ignore_gh[len(ignore_gh)-1] == '/':
-                    ignore_gh = ignore_gh[:len(ignore_gh)-1]
-                if ignore_gh in pieces or ignore_gh in file_list or ignore_gh in dir_name:
-                    print_line(line_num(), (ignore_gh, pieces, file_list), "IGNORE", "RED")
-                    ignore = True
-                    break
 
         if not ignore:
             to_submit = add_to_push_list(
@@ -430,14 +399,66 @@ def cmd_push(args):
     for fn in args.items:
         local_items = process_dir(local_items, fn, [x.lower() for x in args.extensions])
 
-    print_line(line_num(), local_items, "%s Local Items" % str(len(local_items)), 'GREEN', True)
+    common_base_directory = find_common_base_dir(local_items)
+
+    # Look for `.gitignore` files
+    gitignore_patterns = list()
+    for item in local_items:
+        filename = local_items[item]['fn']
+        filepath = local_items[item]['raw_fn']
+        if filename == '.gitignore':
+            gitignore = open(filepath, 'r')
+            if gitignore.mode == 'r':
+                gitignore_lines = gitignore.readlines()
+                for line in gitignore_lines:
+                    str_line = gitignore_to_string(line)
+                    if str_line:
+                        gitignore_patterns.append(str_line)
+
+    # Ignore anything matching gitignore patterns
+    cleaned_items = dict()
+    for item in local_items:
+        raw_fn = local_items[item]['raw_fn']
+        ignore_file = False
+        for pattern in gitignore_patterns:
+            no_base_dir = raw_fn
+            if common_base_directory:
+                no_base_dir = raw_fn.replace(common_base_directory + '/','')
+
+            optMatch = pattern == no_base_dir
+            optHasDirectory = '/' in pattern
+            optIsDirectory = pattern.endswith('/')
+            optWildcard = '*' in pattern
+
+            if optMatch:
+                ignore_file = True
+            elif optWildcard:
+                clean_str = pattern.replace("*", '')
+                if pattern.startswith('*'):
+                    if no_base_dir.endswith(clean_str):
+                        ignore_file = True
+                if pattern.endswith('*'):
+                    if no_base_dir.startswith(clean_str):
+                        ignore_file = True
+            elif optIsDirectory:
+                if no_base_dir.startswith(pattern):
+                    ignore_file = True
+            elif optHasDirectory:
+                if pattern in no_base_dir:
+                    ignore_file = True
+
+
+        if not ignore_file:
+            cleaned_items[raw_fn] = local_items[item]
+
+    local_items = cleaned_items
+    print_line(line_num(), local_items, "%s Cleaned Local Items" % str(len(cleaned_items)), 'GREEN', True)
 
     if len(local_items) == 0:
         # Probably print a message here once we get verbose output
         exit(0)
 
     new_local_items = dict()
-    common_base_directory = find_common_base_dir(local_items)
     if common_base_directory:
         for filename, file_data in local_items.items():
             # Remove the `dir_name` from the filename in the file_data
