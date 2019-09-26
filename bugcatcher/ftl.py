@@ -34,6 +34,7 @@ path_ignore_pieces = [re.compile('/__'),
                       re.compile('/\.'),
                       re.compile('^node_modules/'),
                       re.compile('/node_modules/')]
+gitignore_patterns = ['.git/']
 
 exit_error = {'command_unspecified': -2,
               'unknown_command': -3,
@@ -402,7 +403,6 @@ def cmd_push(args):
     common_base_directory = find_common_base_dir(local_items)
 
     # Look for `.gitignore` files
-    gitignore_patterns = list()
     for item in local_items:
         filename = local_items[item]['fn']
         filepath = local_items[item]['raw_fn']
@@ -432,6 +432,10 @@ def cmd_push(args):
 
             if optMatch:
                 ignore_file = True
+            elif optHasDirectory and optWildcard:
+                clean_str = pattern.replace("*", '')
+                if clean_str in no_base_dir:
+                    ignore_file = True
             elif optWildcard:
                 clean_str = pattern.replace("*", '')
                 if pattern.startswith('*'):
