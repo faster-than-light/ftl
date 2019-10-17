@@ -666,7 +666,7 @@ def main():
         # Temporarily allow the old variable name until we get rid of it
         default_endpoint = os.environ['STL_ENDPOINT']
     else:
-        default_endpoint = 'https://bugcatcher.fasterthanlight.dev'
+        default_endpoint = 'https://api.bugcatcher.fasterthanlight.dev'
 
     parser = argparse.ArgumentParser(description='FTL Client for running tests')
 
