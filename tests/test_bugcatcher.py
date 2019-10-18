@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 def test_bar_fixture(testdir):
     assert True
 
