@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+import sys
 
+sys.dont_write_bytecode = True
 
 def test_bar_fixture(testdir):
     assert True
