@@ -1,6 +1,14 @@
 # ftl
 Faster Than Light Command Line Test Client
 
+[![PyPI version](https://badge.fury.io/py/bugcatcher.svg)](https://badge.fury.io/py/bugcatcher)
+[![Build Status](https://travis-ci.org/faster-than-light/ftl.svg?branch=master)](https://travis-ci.org/faster-than-light/ftl)
+[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+
+[![Issues](https://img.shields.io/github/issues/faster-than-light/ftl)](https://github.com/faster-than-light/ftl/issues)
+![Forks](https://img.shields.io/github/forks/faster-than-light/ftl)
+![Stars](https://img.shields.io/github/stars/faster-than-light/ftl)
+
 ### Installation
 
 #### Installing with PIP
