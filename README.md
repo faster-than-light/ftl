@@ -1,7 +1,18 @@
 # ftl
 Faster Than Light Command Line Test Client
 
-#### Usage
+### Installation
+
+#### Installing with PIP
+`pip install bugcatcher`
+
+Installing with PIP creates a console script for `ftl` to run BugCatcher.
+
+#### Installing from the GitHub Repository
+
+Download or clone this repository to your drive. Then use PIP to install the local package by going to its directory in your console and typing: `pip install .`
+
+### Usage
 
 ```
 ftl [-h] [--project PROJECT] [--endpoint ENDPOINT] [--async]
