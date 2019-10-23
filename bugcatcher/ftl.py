@@ -673,7 +673,7 @@ def main():
 
     if 'FTL_ENDPOINT' in os.environ:
         default_endpoint = os.environ['FTL_ENDPOINT']
-    if 'STL_ENDPOINT' in os.environ:
+    elif 'STL_ENDPOINT' in os.environ:
         # Temporarily allow the old variable name until we get rid of it
         default_endpoint = os.environ['STL_ENDPOINT']
     else:
