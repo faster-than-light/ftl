@@ -3,8 +3,7 @@
 # !/usr/bin/env python3
 
 import argparse
-from git import Git, Repo
-from git import __version__ as git_version
+from git import Repo
 import json
 import shutil, os
 import sys
