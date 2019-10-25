@@ -710,8 +710,6 @@ def scrub_ignored_files(local_files):
                     ignore = True
             if not ignore:
                 clean_files[item] = local_files[item]
-            else:
-                print('ingnoring %s' % item)
 
         print("Found a `.gitignore` file. Evaluating files...")
         print("%d of %d local files match .gitignore patterns." % (
