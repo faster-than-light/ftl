@@ -21,6 +21,7 @@ setup(
     py_modules=['bugcatcher'],
     packages=['bugcatcher'],
     install_requires=[
+        'gitpython',
         'requests',
         'colorama',
         'pytest>=3.5.0'

@@ -3,8 +3,10 @@
 # !/usr/bin/env python3
 
 import argparse
+from git import Git, Repo
+from git import __version__ as git_version
 import json
-import os
+import shutil, os
 import sys
 import textwrap
 import re
@@ -192,27 +194,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
             print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
 
     return to_submit
-
-
-def gitignore_to_string(line):
-    if line and "#" not in line:
-        line = line.replace("\n", '')
-        if line:
-            return line
-    return
-
-
-def gitignore_to_regex(line):
-    # Abandoned trying to use regex for gitignore patterns
-    # todo: Look into using RegEx for ignoring files matching gitignore patterns
-    if line and "#" not in line:
-        line = line.replace("*", '')
-        line = line.replace("$", "\$")
-        line = line.replace(".", "\.") # this one is causing an issue
-        line = line.replace("\n", '')
-        if line:
-            return re.compile(line)
-    return
 
 
 def process_dir(to_submit, fn, extensions):
@@ -403,60 +384,13 @@ def cmd_push(args):
     common_base_directory = find_common_base_dir(local_items)
 
     # Look for `.gitignore` files
+    gitignore = None
     for item in local_items:
         filename = local_items[item]['fn']
-        filepath = local_items[item]['raw_fn']
         if filename == '.gitignore':
-            gitignore = open(filepath, 'r')
-            if gitignore.mode == 'r':
-                gitignore_lines = gitignore.readlines()
-                for line in gitignore_lines:
-                    str_line = gitignore_to_string(line)
-                    if str_line:
-                        gitignore_patterns.append(str_line)
-
-    # Ignore anything matching gitignore patterns
-    cleaned_items = dict()
-    for item in local_items:
-        raw_fn = local_items[item]['raw_fn']
-        ignore_file = False
-        for pattern in gitignore_patterns:
-            no_base_dir = raw_fn
-            if common_base_directory:
-                no_base_dir = raw_fn.replace(common_base_directory + '/','')
-
-            optMatch = pattern == no_base_dir
-            optHasDirectory = '/' in pattern
-            optIsDirectory = pattern.endswith('/')
-            optWildcard = '*' in pattern
-
-            if optMatch:
-                ignore_file = True
-            elif optHasDirectory and optWildcard:
-                clean_str = pattern.replace("*", '')
-                if clean_str in no_base_dir:
-                    ignore_file = True
-            elif optWildcard:
-                clean_str = pattern.replace("*", '')
-                if pattern.startswith('*'):
-                    if no_base_dir.endswith(clean_str):
-                        ignore_file = True
-                if pattern.endswith('*'):
-                    if no_base_dir.startswith(clean_str):
-                        ignore_file = True
-            elif optIsDirectory:
-                if no_base_dir.startswith(pattern):
-                    ignore_file = True
-            elif optHasDirectory:
-                if pattern in no_base_dir:
-                    ignore_file = True
-
-
-        if not ignore_file:
-            cleaned_items[raw_fn] = local_items[item]
-
-    local_items = cleaned_items
-    print_line(line_num(), local_items, "%s Cleaned Local Items" % str(len(cleaned_items)), 'GREEN', True)
+            gitignore = True
+    if gitignore:
+        local_items = scrub_ignored_files(local_items)
 
     if len(local_items) == 0:
         # Probably print a message here once we get verbose output
@@ -740,6 +674,50 @@ def determine_sid(args):
                 'SID "%s" does not appear to be valid; a valid SID is 40 characters long, comprised of the characters A-z and 0-9.' % sid)
 
     return sid, err, errstr
+
+
+def scrub_ignored_files(local_files):
+    if not local_files:
+        return
+    
+    repo_path = os.getcwd()
+    repo = None
+    temp_repo = None # If `.git` is not found we init and then destroy a repo
+    
+    # Repo object used to programmatically interact with Git repositories
+    try:
+        repo = Repo(repo_path)
+    except:
+        # No GIT repository was found
+        repo = Repo.init(repo_path)
+        temp_repo = True
+
+    # check that the repository loaded correctly
+    if repo and not repo.bare:
+        git = repo.git
+        clean = git.clean(n=True, d=True, X=True) + os.linesep + 'Would remove .git' + os.path.sep
+
+        # Iterate through local_files and remove any to be ignored
+        clean_files = dict()
+        for item in local_files:
+            filepath = local_files[item]['raw_fn']
+            ignore = None
+            for line in clean.splitlines():
+                line = line.replace('Would remove ', '')
+                if filepath.startswith(line):
+                    ignore = True
+            if not ignore:
+                clean_files[item] = local_files[item]
+
+        local_files = clean_files
+
+        if temp_repo:
+            try:
+                shutil.rmtree(repo_path + os.path.sep + '.git')
+            except:
+                print('Failed to remove temporary GIT initialization!')
+        
+    return local_files
 
 
 def main():
