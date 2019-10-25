@@ -3,8 +3,9 @@
 # !/usr/bin/env python3
 
 import argparse
+from git import Repo
 import json
-import os
+import shutil, os
 import sys
 import textwrap
 import re
@@ -23,7 +24,7 @@ import inspect
 # from Login import current_login
 
 args = None
-default_extensions = ['.sol', '.json', '.txt', '.py']
+default_extensions = []
 max_retries_get_test_result = 5
 
 path_ignore_pieces = [re.compile('/__'),
@@ -34,6 +35,7 @@ path_ignore_pieces = [re.compile('/__'),
                       re.compile('/\.'),
                       re.compile('^node_modules/'),
                       re.compile('/node_modules/')]
+gitignore_patterns = ['.git' + os.path.sep]
 
 exit_error = {'command_unspecified': -2,
               'unknown_command': -3,
@@ -165,10 +167,10 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
         if not filename.startswith("./"):
             tmp_fn, extension = os.path.splitext(filename)
 
-            if extension.lower() in extensions:
+            if not extensions or extension.lower() in extensions:
                 raw_fn = "%s/%s" % (dir_name, filename)
                 pieces = os.path.normpath(raw_fn).split(os.path.sep)
-                fn = '/'.join(pieces[base_path_index:])
+                fn = (os.path.sep).join(pieces[base_path_index:])
 
                 if not len(fn):
                     # Redefine the filenames for files in the basepath dir
@@ -213,7 +215,7 @@ def process_dir(to_submit, fn, extensions):
         # This isn't ideal, but will work for most projects and I can
         # write a more intelligent version if it becomes neccessary.
         pieces = os.path.normpath(dir_name).split(os.path.sep)
-        truncated_dir_name = '/'.join(pieces[base_path_index:]) + "/"
+        truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
 
         print_line(line_num(), {
             "dir_name": dir_name,
@@ -356,6 +358,16 @@ def cmd_status(args):
             print("Project %s not yet created. Use the 'push' command to upload it." % args.project)
 
 
+def find_common_base_dir(items):
+    # Look for a common base directory
+    dir_name = list(items.keys())[0].split('/')[0]
+    if len(list(filter(lambda x: x.split('/')[0] == dir_name, items))) == len(items):
+        # All the files are prefixed with the same directory name, so we can remove it
+        return dir_name
+    else:
+        return
+
+
 def cmd_push(args):
     if not args.items:
         abort('required_arg_not_found', 'Items argument is required for PUSH command.')
@@ -368,20 +380,26 @@ def cmd_push(args):
     for fn in args.items:
         local_items = process_dir(local_items, fn, [x.lower() for x in args.extensions])
 
-    print_line(line_num(), local_items, "%s Local Items" % str(len(local_items)), 'GREEN', True)
+    common_base_directory = find_common_base_dir(local_items)
+
+    # Look for `.gitignore` files
+    gitignore = None
+    for item in local_items:
+        filename = local_items[item]['fn']
+        if filename == '.gitignore':
+            gitignore = True
+    if gitignore:
+        local_items = scrub_ignored_files(local_items)
 
     if len(local_items) == 0:
         # Probably print a message here once we get verbose output
         exit(0)
 
     new_local_items = dict()
-    # Look for a common base directory
-    dir_name = list(local_items.keys())[0].split('/')[0]
-    if len(list(filter(lambda x: x.split('/')[0] == dir_name, local_items))) == len(local_items):
-        # All the files are prefixed with the same directory name, so we can remove it
+    if common_base_directory:
         for filename, file_data in local_items.items():
             # Remove the `dir_name` from the filename in the file_data
-            filename = file_data["fn"] = file_data["raw_fn"].replace(dir_name + '/', '')
+            filename = file_data["fn"] = file_data["raw_fn"].replace(common_base_directory + '/', '')
             # Add the cleaned file data to our new dict with a cleaned filename as the key
             new_local_items[filename] = file_data
         local_items = new_local_items
@@ -655,6 +673,58 @@ def determine_sid(args):
                 'SID "%s" does not appear to be valid; a valid SID is 40 characters long, comprised of the characters A-z and 0-9.' % sid)
 
     return sid, err, errstr
+
+
+def scrub_ignored_files(local_files):
+    if not local_files:
+        return
+    
+    repo_path = os.getcwd()
+    repo = None
+    temp_repo = None # If `.git` is not found we init and then destroy a repo
+    
+    # Repo object used to programmatically interact with Git repositories
+    try:
+        repo = Repo(repo_path)
+    except:
+        # No GIT repository was found
+        repo = Repo.init(repo_path)
+        temp_repo = True
+
+    # check that the repository loaded correctly
+    if repo and not repo.bare:
+        git = repo.git
+        clean = git.clean(n=True, d=True, X=True)
+        for pattern in gitignore_patterns:
+            clean += os.linesep + 'Would remove ' + pattern
+
+        # Iterate through local_files and remove any to be ignored
+        clean_files = dict()
+        for item in local_files:
+            filepath = local_files[item]['raw_fn']
+            ignore = None
+            for line in clean.splitlines():
+                line = line.replace('Would remove ', '')
+                if filepath.startswith(line):
+                    ignore = True
+            if not ignore:
+                clean_files[item] = local_files[item]
+
+        print("Found a `.gitignore` file. Evaluating files...")
+        print("%d of %d local files match .gitignore patterns." % (
+            len(local_files) - len(clean_files),
+            len(local_files)
+        ))
+        print("%d files ready to upload..." % len(clean_files))
+        local_files = clean_files
+
+        if temp_repo:
+            try:
+                shutil.rmtree(repo_path + os.path.sep + '.git')
+            except:
+                print('Failed to remove temporary GIT initialization!')
+        
+    return local_files
 
 
 def main():
