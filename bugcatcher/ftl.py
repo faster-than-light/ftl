@@ -36,7 +36,7 @@ path_ignore_pieces = [re.compile('/__'),
                       re.compile('/\.'),
                       re.compile('^node_modules/'),
                       re.compile('/node_modules/')]
-gitignore_patterns = ['.git/']
+gitignore_patterns = ['.git' + os.path.sep]
 
 exit_error = {'command_unspecified': -2,
               'unknown_command': -3,
@@ -695,7 +695,9 @@ def scrub_ignored_files(local_files):
     # check that the repository loaded correctly
     if repo and not repo.bare:
         git = repo.git
-        clean = git.clean(n=True, d=True, X=True) + os.linesep + 'Would remove .git' + os.path.sep
+        clean = git.clean(n=True, d=True, X=True)
+        for pattern in gitignore_patterns:
+            clean += os.linesep + 'Would remove ' + pattern
 
         # Iterate through local_files and remove any to be ignored
         clean_files = dict()
@@ -708,7 +710,15 @@ def scrub_ignored_files(local_files):
                     ignore = True
             if not ignore:
                 clean_files[item] = local_files[item]
+            else:
+                print('ingnoring %s' % item)
 
+        print("Found a `.gitignore` file. Evaluating files...")
+        print("%d of %d local files match .gitignore patterns." % (
+            len(local_files) - len(clean_files),
+            len(local_files)
+        ))
+        print("%d files ready to upload..." % len(clean_files))
         local_files = clean_files
 
         if temp_repo:
