@@ -188,7 +188,7 @@ def process_dir(to_submit, fn, extensions):
     for dir_name, sub_dir_list, file_list in os.walk(fn, topdown=True):
         # Clean up the dir_name for evaluation later
         eval_dir_name = dir_name
-        if dir_name.startswith('./'):
+        if dir_name.startswith('.' + os.path.sep):
             eval_dir_name = dir_name[2:]
 
         # We know we are in a directory
