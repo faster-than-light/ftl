@@ -31,11 +31,10 @@ path_ignore_pieces = [re.compile('/__'),
                       re.compile('^__'),
                       re.compile('/venv/'),
                       re.compile('^venv/'),
-                      re.compile('^\.'),
-                      re.compile('/\.'),
+                      re.compile('^\.git'),
+                      re.compile('/\.git'),
                       re.compile('^node_modules/'),
                       re.compile('/node_modules/')]
-gitignore_patterns = ['.git' + os.path.sep]
 
 exit_error = {'command_unspecified': -2,
               'unknown_command': -3,
@@ -64,8 +63,6 @@ def line_num():
 def strip_relative_path(dir_name):
     pieces = os.path.normpath(dir_name).split(os.path.sep)
 
-    newpath = []
-
     true_path_start = None
 
     for x in range(0, len(pieces)):
@@ -73,13 +70,6 @@ def strip_relative_path(dir_name):
             true_path_start = x
         else:
             true_path_start = None
-
-    print_line(line_num(), {
-        "dir_name": dir_name,
-        "true_path_start": true_path_start,
-        "pieces": pieces,
-        "joined_pieces": '/'.join(pieces[true_path_start:])
-    })
 
     exit(0)
 
@@ -162,7 +152,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
     :param <dict> to_submit: Dictionary of files to be pushed. (appended in this function)
     :return: <dict> Dictionary of files to be pushed
     """
-    print_line(line_num(), (dir_name, file_list))
     for filename in file_list:
         if not filename.startswith("./"):
             tmp_fn, extension = os.path.splitext(filename)
@@ -184,14 +173,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
                                      'sha256': sha256_file(raw_fn),
                                      'fn': fn}
 
-                print_line(line_num(), raw_fn, 'Eligible File', 'GREEN', True)
-
-            else:
-                print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
-
-        else:
-            print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
-
     return to_submit
 
 
@@ -202,38 +183,31 @@ def process_dir(to_submit, fn, extensions):
     pieces = os.path.normpath(fn).split(os.path.sep)
     base_path_index = len(pieces)
 
-    print_line(line_num(), str("%s %s" % (pieces, base_path_index)), 'Evaluate', 'CYAN')
-
     is_directory = None
 
-    for dir_name, sub_dir_list, file_list in os.walk(fn):
-        print_line(line_num(), str("%s %s %s" % (dir_name, sub_dir_list, file_list)))
+    for dir_name, sub_dir_list, file_list in os.walk(fn, topdown=True):
+        # Clean up the dir_name for evaluation later
+        eval_dir_name = dir_name
+        if dir_name.startswith('./'):
+            eval_dir_name = dir_name[2:]
 
         # We know we are in a directory
         is_directory = True
 
         # This isn't ideal, but will work for most projects and I can
         # write a more intelligent version if it becomes neccessary.
-        pieces = os.path.normpath(dir_name).split(os.path.sep)
-        truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
-
-        print_line(line_num(), {
-            "dir_name": dir_name,
-            "sub_dir_list": sub_dir_list,
-            "file_list": file_list,
-            "pieces": pieces,
-            "base_path_index": base_path_index,
-            "truncated_dir_name": truncated_dir_name
-        },
-                   'Directory',
-                   'CYAN',
-                   True
-                   )
-
+        pieces = os.path.normpath(eval_dir_name).split(os.path.sep)
+        # truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
+        
         ignore = False
 
         for ignore_re in path_ignore_pieces:
-            if ignore_re.search(truncated_dir_name):
+            # Remove any subdirectories matching the ignore list
+            for subdir in sub_dir_list:
+                if ignore_re.search(subdir):
+                    sub_dir_list[:] = [d for d in sub_dir_list if not d == subdir]
+            # Ignore this directory?
+            if ignore_re.search(eval_dir_name):
                 ignore = True
                 break
 
@@ -246,7 +220,9 @@ def process_dir(to_submit, fn, extensions):
                 to_submit
             )
         else:
-            print_line(line_num(), str("%s\n" % to_submit), 'Not Eligible', 'RED')
+            # Ignore this directory and everything in it
+            sub_dir_list[:] = []
+            file_list[:] = []
 
     if not is_directory:
         to_submit = add_to_push_list(
@@ -359,6 +335,9 @@ def cmd_status(args):
 
 
 def find_common_base_dir(items):
+    if not items.keys():
+        return
+
     # Look for a common base directory
     dir_name = list(items.keys())[0].split('/')[0]
     if len(list(filter(lambda x: x.split('/')[0] == dir_name, items))) == len(items):
@@ -695,8 +674,6 @@ def scrub_ignored_files(local_files):
     if repo and not repo.bare:
         git = repo.git
         clean = git.clean(n=True, d=True, X=True)
-        for pattern in gitignore_patterns:
-            clean += os.linesep + 'Would remove ' + pattern
 
         # Iterate through local_files and remove any to be ignored
         clean_files = dict()
