@@ -197,14 +197,14 @@ def process_dir(to_submit, fn, extensions):
         ignore = False
 
         for ignore_re in path_ignore_pieces:
-            # Remove any subdirectories matching the ignore list
-            for subdir in sub_dir_list:
-                if ignore_re.search(subdir):
-                    sub_dir_list[:] = [d for d in sub_dir_list if not d == subdir]
             # Ignore this directory?
             if ignore_re.search(eval_dir_name):
                 ignore = True
                 break
+            # Remove any subdirectories matching the ignore list
+            for subdir in sub_dir_list:
+                if ignore_re.search(subdir):
+                    sub_dir_list[:] = [d for d in sub_dir_list if not d == subdir]
 
         if not ignore:
             to_submit = add_to_push_list(
