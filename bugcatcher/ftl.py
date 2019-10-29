@@ -194,11 +194,6 @@ def process_dir(to_submit, fn, extensions):
         # We know we are in a directory
         is_directory = True
 
-        # This isn't ideal, but will work for most projects and I can
-        # write a more intelligent version if it becomes neccessary.
-        pieces = os.path.normpath(eval_dir_name).split(os.path.sep)
-        # truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
-        
         ignore = False
 
         for ignore_re in path_ignore_pieces:
