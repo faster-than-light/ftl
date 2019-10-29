@@ -215,9 +215,8 @@ def process_dir(to_submit, fn, extensions):
                 to_submit
             )
         else:
-            # Ignore this directory and everything in it
+            # Ignore this directory and prevent its subdirectories from being walked further
             sub_dir_list[:] = []
-            file_list[:] = []
 
     if not is_directory:
         to_submit = add_to_push_list(
