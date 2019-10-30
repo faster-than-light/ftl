@@ -588,7 +588,7 @@ def show_test_results(args):
                 result['end_line'],
                 result['test_suite_test']['ftl_short_description']))
     else:
-        print(data['test_run_result'])
+        print(json.dumps(data['test_run_result']))
 
 
 def cmd_del(args):
