@@ -557,7 +557,8 @@ def show_test_results(args):
     if res.status_code != 200:
         abort(err, errstr)
 
-    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
+    if not args.json:
+        print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
 
     #    data['result'].sort(key = lambda x: (data['result'][x]['test_suite_test']['ftl_severity_ordinal'], data['result'][x]['code']['name'], data['result'][x]['test_suite_test']['ftl_test_id'], data['result'][x]['start_line']),
     #                        reverse = False)
@@ -571,14 +572,17 @@ def show_test_results(args):
     #    data['result'].sort(key = lambda x: (x['test_suite_test']['ftl_severity_ordinal']),
     #                        reverse = False)
 
-    for result in data['test_run_result']:
-        print("%-30s %-12s %-6s %4i - %4i %s" %
-              (result['code']['name'],
-               result['test_suite_test']['ftl_test_id'],
-               result['test_suite_test']['ftl_severity'],
-               result['start_line'],
-               result['end_line'],
-               result['test_suite_test']['ftl_short_description']))
+    if not args.json:
+        for result in data['test_run_result']:
+            print("%-30s %-12s %-6s %4i - %4i %s" %
+                (result['code']['name'],
+                result['test_suite_test']['ftl_test_id'],
+                result['test_suite_test']['ftl_severity'],
+                result['start_line'],
+                result['end_line'],
+                result['test_suite_test']['ftl_short_description']))
+    else:
+        print(data['test_run_result'])
 
 
 def cmd_del(args):
@@ -738,6 +742,9 @@ def main():
 
     parser.add_argument('--sid', '-s',
                         help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
+
+    parser.add_argument('--json', '-j', action='store_true',
+                        help="Results will be returned in JSON.")
 
     parser.add_argument('--extension', dest='extensions', action="append",
                         help="Extensions to submit. If unspecified, defaults to %s. Adding extensions adds to this list, rather than replacing it" % default_extensions,
