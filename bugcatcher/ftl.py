@@ -467,7 +467,8 @@ def cmd_push(args):
 
 
 def cmd_test(args):
-    print("Beginning test of project %s" % args.project)
+    if not args.json:
+        print("Beginning test of project %s" % args.project)
 
     res, data, err, errstr = rest_call(args, 'POST', "test_project/%s" % args.project)
 
@@ -476,7 +477,8 @@ def cmd_test(args):
 
     args.stlid = data['stlid']
 
-    print("Test %s started, waiting for result." % args.stlid)
+    if not args.json:
+        print("Test %s started, waiting for result." % args.stlid)
 
     done = False
 
@@ -490,14 +492,17 @@ def cmd_test(args):
             if 'status_msg' in data['response']:
                 if data['response']['status_msg'] == 'COMPLETE':
                     done = True
-                    print("\tSTATUS: Complete; getting results...")
-                    print()
+                    if not args.json:
+                        print("\tSTATUS: Complete; getting results...")
+                        print()
 
         if not done:
             if data['response']['status_msg'] == 'SETUP':
-                print("\tSTATUS: Setting up")
+                if not args.json:
+                    print("\tSTATUS: Setting up")
             else:
-                print("\tSTATUS: Running %s%% Complete" % data['response']['percent_complete'])
+                if not args.json:
+                    print("\tSTATUS: Running %s%% Complete" % data['response']['percent_complete'])
 
             sleep(5)
 
@@ -549,7 +554,8 @@ def show_test_results(args):
 
     try_count = 1
     while res.status_code != 200 and try_count <= max_retries_get_test_result:
-        print("\tRetrying \"GET /test_result\"... (%s retry attempts)" % try_count)
+        if not args.json:
+            print("\tRetrying \"GET /test_result\"... (%s retry attempts)" % try_count)
         res, data, err, errstr = fetch_test_results(args)
         try_count = try_count + 1
         sleep(1)
@@ -744,7 +750,7 @@ def main():
                         help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
 
     parser.add_argument('--json', '-j', action='store_true',
-                        help="Results will be returned in JSON.")
+                        help="Results of \"test\" and \"view\" commands will be returned as a JSON byte array.")
 
     parser.add_argument('--extension', dest='extensions', action="append",
                         help="Extensions to submit. If unspecified, defaults to %s. Adding extensions adds to this list, rather than replacing it" % default_extensions,

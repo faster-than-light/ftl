@@ -45,6 +45,6 @@ Then minimize your `ftl` commands.
 
 `ftl test`
 
-`ftl view <test_id>`
+`ftl view <test_id> --json`
 
 `ftl del`
