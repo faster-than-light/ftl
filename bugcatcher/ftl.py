@@ -31,11 +31,10 @@ path_ignore_pieces = [re.compile('/__'),
                       re.compile('^__'),
                       re.compile('/venv/'),
                       re.compile('^venv/'),
-                      re.compile('^\.'),
-                      re.compile('/\.'),
+                      re.compile('^\.git'),
+                      re.compile('/\.git'),
                       re.compile('^node_modules/'),
                       re.compile('/node_modules/')]
-gitignore_patterns = ['.git' + os.path.sep]
 
 exit_error = {'command_unspecified': -2,
               'unknown_command': -3,
@@ -64,8 +63,6 @@ def line_num():
 def strip_relative_path(dir_name):
     pieces = os.path.normpath(dir_name).split(os.path.sep)
 
-    newpath = []
-
     true_path_start = None
 
     for x in range(0, len(pieces)):
@@ -73,13 +70,6 @@ def strip_relative_path(dir_name):
             true_path_start = x
         else:
             true_path_start = None
-
-    print_line(line_num(), {
-        "dir_name": dir_name,
-        "true_path_start": true_path_start,
-        "pieces": pieces,
-        "joined_pieces": '/'.join(pieces[true_path_start:])
-    })
 
     exit(0)
 
@@ -162,7 +152,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
     :param <dict> to_submit: Dictionary of files to be pushed. (appended in this function)
     :return: <dict> Dictionary of files to be pushed
     """
-    print_line(line_num(), (dir_name, file_list))
     for filename in file_list:
         if not filename.startswith("./"):
             tmp_fn, extension = os.path.splitext(filename)
@@ -184,14 +173,6 @@ def add_to_push_list(file_list, base_path_index, dir_name, extensions, to_submit
                                      'sha256': sha256_file(raw_fn),
                                      'fn': fn}
 
-                print_line(line_num(), raw_fn, 'Eligible File', 'GREEN', True)
-
-            else:
-                print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
-
-        else:
-            print_line(line_num(), str("%s\n" % filename), 'Not Eligible', 'RED')
-
     return to_submit
 
 
@@ -202,40 +183,28 @@ def process_dir(to_submit, fn, extensions):
     pieces = os.path.normpath(fn).split(os.path.sep)
     base_path_index = len(pieces)
 
-    print_line(line_num(), str("%s %s" % (pieces, base_path_index)), 'Evaluate', 'CYAN')
-
     is_directory = None
 
-    for dir_name, sub_dir_list, file_list in os.walk(fn):
-        print_line(line_num(), str("%s %s %s" % (dir_name, sub_dir_list, file_list)))
+    for dir_name, sub_dir_list, file_list in os.walk(fn, topdown=True):
+        # Clean up the dir_name for evaluation later
+        eval_dir_name = dir_name
+        if dir_name.startswith('.' + os.path.sep):
+            eval_dir_name = dir_name[2:]
 
         # We know we are in a directory
         is_directory = True
 
-        # This isn't ideal, but will work for most projects and I can
-        # write a more intelligent version if it becomes neccessary.
-        pieces = os.path.normpath(dir_name).split(os.path.sep)
-        truncated_dir_name = (os.path.sep).join(pieces[base_path_index:]) + os.path.sep
-
-        print_line(line_num(), {
-            "dir_name": dir_name,
-            "sub_dir_list": sub_dir_list,
-            "file_list": file_list,
-            "pieces": pieces,
-            "base_path_index": base_path_index,
-            "truncated_dir_name": truncated_dir_name
-        },
-                   'Directory',
-                   'CYAN',
-                   True
-                   )
-
         ignore = False
 
         for ignore_re in path_ignore_pieces:
-            if ignore_re.search(truncated_dir_name):
+            # Ignore this directory?
+            if ignore_re.search(eval_dir_name):
                 ignore = True
                 break
+            # Remove any subdirectories matching the ignore list
+            for subdir in sub_dir_list:
+                if ignore_re.search(subdir):
+                    sub_dir_list[:] = [d for d in sub_dir_list if not d == subdir]
 
         if not ignore:
             to_submit = add_to_push_list(
@@ -246,7 +215,8 @@ def process_dir(to_submit, fn, extensions):
                 to_submit
             )
         else:
-            print_line(line_num(), str("%s\n" % to_submit), 'Not Eligible', 'RED')
+            # Ignore this directory and prevent its subdirectories from being walked further
+            sub_dir_list[:] = []
 
     if not is_directory:
         to_submit = add_to_push_list(
@@ -359,6 +329,9 @@ def cmd_status(args):
 
 
 def find_common_base_dir(items):
+    if not items.keys():
+        return
+
     # Look for a common base directory
     dir_name = list(items.keys())[0].split('/')[0]
     if len(list(filter(lambda x: x.split('/')[0] == dir_name, items))) == len(items):
@@ -407,6 +380,8 @@ def cmd_push(args):
         for file_data in local_items.values():
             file_data["fn"] = file_data["raw_fn"]
 
+    print("Synchronizing files for project: %s" % args.project)
+    
     # Is this a new project?
     project = None
     remote_items = {}
@@ -494,7 +469,8 @@ def cmd_push(args):
 
 
 def cmd_test(args):
-    print("Beginning test of project %s" % args.project)
+    if not args.json:
+        print("Beginning test of project %s" % args.project)
 
     res, data, err, errstr = rest_call(args, 'POST', "test_project/%s" % args.project)
 
@@ -503,7 +479,8 @@ def cmd_test(args):
 
     args.stlid = data['stlid']
 
-    print("Test %s started, waiting for result." % args.stlid)
+    if not args.json:
+        print("Test %s started, waiting for result." % args.stlid)
 
     done = False
 
@@ -517,44 +494,21 @@ def cmd_test(args):
             if 'status_msg' in data['response']:
                 if data['response']['status_msg'] == 'COMPLETE':
                     done = True
-                    print("\tSTATUS: Complete; getting results...")
-                    print()
+                    if not args.json:
+                        print("\tSTATUS: Complete; getting results...")
+                        print()
 
         if not done:
             if data['response']['status_msg'] == 'SETUP':
-                print("\tSTATUS: Setting up")
+                if not args.json:
+                    print("\tSTATUS: Setting up")
             else:
-                print("\tSTATUS: Running %s%% Complete" % data['response']['percent_complete'])
+                if not args.json:
+                    print("\tSTATUS: Running %s%% Complete" % data['response']['percent_complete'])
 
             sleep(5)
 
     show_test_results(args)
-
-
-def show_test_results_OLD(stlid):
-    current_login(SID.load_by_sid(os.environ['STL_INTERNAL_SID']))
-
-    tr = TestRun()
-
-    tr.load_by_stlid(stlid)
-
-    trrs = TestRunResult().load(test_run=tr, sort_key='stlid.stlid')
-
-    for trr in trrs:
-        trr.test_suite_test.set_ftl_severity_ordinal_from_ftl_severity()
-        trr.test_suite_test.save()
-
-    trrs.sort(key=lambda x: (
-        x.test_suite_test.ftl_severity_ordinal, x.code.name, x.test_suite_test.ftl_test_id, x.start_line),
-              reverse=False)
-
-    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
-
-    for trr in trrs:
-        print("%-30s %-12s %-6s %4i - %4i %s" % (
-            trr.code.name, trr.test_suite_test.ftl_test_id, trr.test_suite_test.ftl_severity, trr.start_line,
-            trr.end_line,
-            trr.test_suite_test.ftl_short_description))
 
 
 def fetch_test_results(args):
@@ -576,7 +530,8 @@ def show_test_results(args):
 
     try_count = 1
     while res.status_code != 200 and try_count <= max_retries_get_test_result:
-        print("\tRetrying \"GET /test_result\"... (%s retry attempts)" % try_count)
+        if not args.json:
+            print("\tRetrying \"GET /test_result\"... (%s retry attempts)" % try_count)
         res, data, err, errstr = fetch_test_results(args)
         try_count = try_count + 1
         sleep(1)
@@ -584,7 +539,8 @@ def show_test_results(args):
     if res.status_code != 200:
         abort(err, errstr)
 
-    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
+    if not args.json:
+        print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
 
     #    data['result'].sort(key = lambda x: (data['result'][x]['test_suite_test']['ftl_severity_ordinal'], data['result'][x]['code']['name'], data['result'][x]['test_suite_test']['ftl_test_id'], data['result'][x]['start_line']),
     #                        reverse = False)
@@ -598,14 +554,17 @@ def show_test_results(args):
     #    data['result'].sort(key = lambda x: (x['test_suite_test']['ftl_severity_ordinal']),
     #                        reverse = False)
 
-    for result in data['test_run_result']:
-        print("%-30s %-12s %-6s %4i - %4i %s" %
-              (result['code']['name'],
-               result['test_suite_test']['ftl_test_id'],
-               result['test_suite_test']['ftl_severity'],
-               result['start_line'],
-               result['end_line'],
-               result['test_suite_test']['ftl_short_description']))
+    if not args.json:
+        for result in data['test_run_result']:
+            print("%-30s %-12s %-6s %4i - %4i %s" %
+                (result['code']['name'],
+                result['test_suite_test']['ftl_test_id'],
+                result['test_suite_test']['ftl_severity'],
+                result['start_line'],
+                result['end_line'],
+                result['test_suite_test']['ftl_short_description']))
+    else:
+        print(json.dumps(data['test_run_result']))
 
 
 def cmd_del(args):
@@ -621,7 +580,8 @@ def cmd_del(args):
 
 def cmd_view(args):
     for stlid in args.items:
-        show_test_results(stlid)
+        args.stlid = stlid
+        show_test_results(args)
 
 
 def determine_project(args):
@@ -695,8 +655,6 @@ def scrub_ignored_files(local_files):
     if repo and not repo.bare:
         git = repo.git
         clean = git.clean(n=True, d=True, X=True)
-        for pattern in gitignore_patterns:
-            clean += os.linesep + 'Would remove ' + pattern
 
         # Iterate through local_files and remove any to be ignored
         clean_files = dict()
@@ -767,6 +725,9 @@ def main():
 
     parser.add_argument('--sid', '-s',
                         help="SID to use for authentication. If not specified, will use environment variable FTL_SID")
+
+    parser.add_argument('--json', '-j', action='store_true',
+                        help="Results of \"test\" and \"view\" commands will be returned as a JSON byte array.")
 
     parser.add_argument('--extension', dest='extensions', action="append",
                         help="Extensions to submit. If unspecified, defaults to %s. Adding extensions adds to this list, rather than replacing it" % default_extensions,
