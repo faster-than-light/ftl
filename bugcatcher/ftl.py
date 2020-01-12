@@ -380,6 +380,8 @@ def cmd_push(args):
         for file_data in local_items.values():
             file_data["fn"] = file_data["raw_fn"]
 
+    print("Synchronizing files for project: %s" % args.project)
+    
     # Is this a new project?
     project = None
     remote_items = {}
@@ -509,32 +511,6 @@ def cmd_test(args):
     show_test_results(args)
 
 
-def show_test_results_OLD(stlid):
-    current_login(SID.load_by_sid(os.environ['STL_INTERNAL_SID']))
-
-    tr = TestRun()
-
-    tr.load_by_stlid(stlid)
-
-    trrs = TestRunResult().load(test_run=tr, sort_key='stlid.stlid')
-
-    for trr in trrs:
-        trr.test_suite_test.set_ftl_severity_ordinal_from_ftl_severity()
-        trr.test_suite_test.save()
-
-    trrs.sort(key=lambda x: (
-        x.test_suite_test.ftl_severity_ordinal, x.code.name, x.test_suite_test.ftl_test_id, x.start_line),
-              reverse=False)
-
-    print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
-
-    for trr in trrs:
-        print("%-30s %-12s %-6s %4i - %4i %s" % (
-            trr.code.name, trr.test_suite_test.ftl_test_id, trr.test_suite_test.ftl_severity, trr.start_line,
-            trr.end_line,
-            trr.test_suite_test.ftl_short_description))
-
-
 def fetch_test_results(args):
     try:
         return rest_call(args, 'GET', "/test_result/%s" % args.stlid)
@@ -604,7 +580,8 @@ def cmd_del(args):
 
 def cmd_view(args):
     for stlid in args.items:
-        show_test_results(stlid)
+        args.stlid = stlid
+        show_test_results(args)
 
 
 def determine_project(args):
