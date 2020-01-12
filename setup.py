@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='bugcatcher',
-    version='0.1.7',
+    version='0.1.8',
     author='Faster Than Light',
     author_email='devops@fasterthanlight.dev',
     maintainer='Faster Than Light',
@@ -33,7 +33,6 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development :: Testing',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
