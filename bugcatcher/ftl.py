@@ -3,6 +3,7 @@
 # !/usr/bin/env python3
 
 import argparse
+from datetime import datetime
 from git import Repo
 import json
 import shutil, os
@@ -24,6 +25,7 @@ import inspect
 # from Login import current_login
 
 args = None
+deltas = dict()
 default_extensions = []
 max_retries_get_test_result = 5
 
@@ -468,6 +470,23 @@ def cmd_push(args):
         print("Nothing to do; all up to date!")
 
 
+def get_testing_time_delta(args):
+    delta = None
+    res, data, err, errstr = rest_call(args, 'GET', "/run_tests/%s" % args.stlid)
+
+    if err:
+        abort(err, errstr)
+
+    if 'response' in data:
+        if 'status_msg' in data['response']:
+            if data['response']['status_msg'] == 'COMPLETE':
+                start_time = datetime.strptime(data['response']['start'][:-6], '%Y-%m-%d %H:%M:%S.%f')
+                end_time = datetime.strptime(data['response']['end'][:-6], '%Y-%m-%d %H:%M:%S.%f')
+                delta = (end_time - start_time).total_seconds()
+
+    return delta
+
+
 def cmd_test(args):
     if not args.json:
         print("Beginning test of project %s" % args.project)
@@ -496,7 +515,9 @@ def cmd_test(args):
                     done = True
                     if not args.json:
                         print("\tSTATUS: Complete; getting results...")
-                        print()
+                        start_time = datetime.strptime(data['response']['start'][:-6], '%Y-%m-%d %H:%M:%S.%f')
+                        end_time = datetime.strptime(data['response']['end'][:-6], '%Y-%m-%d %H:%M:%S.%f')
+                        deltas[args.stlid] = (end_time - start_time).total_seconds()
 
         if not done:
             if data['response']['status_msg'] == 'SETUP':
@@ -539,12 +560,6 @@ def show_test_results(args):
     if res.status_code != 200:
         abort(err, errstr)
 
-    if not args.json:
-        print("%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
-
-    #    data['result'].sort(key = lambda x: (data['result'][x]['test_suite_test']['ftl_severity_ordinal'], data['result'][x]['code']['name'], data['result'][x]['test_suite_test']['ftl_test_id'], data['result'][x]['start_line']),
-    #                        reverse = False)
-
     data['test_run_result'].sort(key=lambda x: (x['test_suite_test']['ftl_severity_ordinal'],
                                                 x['code']['name'],
                                                 x['test_suite_test']['ftl_test_id'],
@@ -555,14 +570,35 @@ def show_test_results(args):
     #                        reverse = False)
 
     if not args.json:
+        issues = 0
+        breakdown = {
+            "high": 0, 
+            "medium": 0, 
+            "low": 0, 
+            "info": 0
+        }
+        msg = str()
         for result in data['test_run_result']:
-            print("%-30s %-12s %-6s %4i - %4i %s" %
+            issues += 1
+            breakdown[ result['test_suite_test']['ftl_severity'] ] += 1
+            msg += ("%-30s %-12s %-6s %4i - %4i %s\n" %
                 (result['code']['name'],
                 result['test_suite_test']['ftl_test_id'],
                 result['test_suite_test']['ftl_severity'],
                 result['start_line'],
                 result['end_line'],
                 result['test_suite_test']['ftl_short_description']))
+        if args.stlid not in deltas:
+            deltas[args.stlid] = get_testing_time_delta(args)
+        print("\nTest duration: %s seconds" % str(deltas[args.stlid])[:-3])
+        print("%d issues found: %d high, %d medium, %d low" % (
+            issues,
+            breakdown['high'],
+            breakdown['medium'],
+            breakdown['low']
+        ))
+        print("\n%-30s %-12s %-6s %-10s %s" % ('FILENAME', 'TEST ID', 'SEV', 'LINES', 'TEST'))
+        print(msg)
     else:
         print(json.dumps(data['test_run_result']))
 

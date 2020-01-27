@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='bugcatcher',
-    version='0.1.8',
+    version='0.1.9',
     author='Faster Than Light',
     author_email='devops@fasterthanlight.dev',
     maintainer='Faster Than Light',
