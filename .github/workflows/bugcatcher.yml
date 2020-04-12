@@ -1,0 +1,19 @@
+name: BugCatcher
+
+on: [push]
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+        name: Use NodeJS 12
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+      - uses: faster-than-light/github-action@master
+        name: BugCatcher Static Analysis
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUGCATCHER_TOKEN: ${{ secrets.BUGCATCHER_TOKEN }}
+          SEVERITY_THRESHOLD: medium
